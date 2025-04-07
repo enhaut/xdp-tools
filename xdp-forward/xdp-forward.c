@@ -31,6 +31,11 @@ int do_help(__unused const void *cfg, __unused const char *pin_root_path)
 	return -1;
 }
 
+/* struct vlan_info { */
+/*     __u16 vlan_id;          // VLAN ID */
+/*     int   phys_ifindex;     // Physical interface index */
+/* }; */
+
 
 struct enum_val xdp_modes[] = { { "native", XDP_MODE_NATIVE },
 				{ "skb", XDP_MODE_SKB },
@@ -146,6 +151,7 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 	const struct load_opts *opt = cfg;
 	struct bpf_program *prog = NULL;
 	struct bpf_map *map = NULL;
+	struct bpf_map *vlan_map_obj = NULL;
 	struct bpf_object *obj;
 	int ret = EXIT_FAILURE;
 	struct iface *iface;
@@ -179,6 +185,7 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 			goto end;
 		}
 		map = xdp_flowtable_skel->maps.xdp_tx_ports;
+		vlan_map_obj = xdp_flowtable_skel->maps.vlan_map;
 		obj = xdp_flowtable_skel->obj;
 		skel = (void *)xdp_flowtable_skel;
 	} else {
@@ -189,6 +196,7 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 			goto end;
 		}
 		map = xdp_forward_skel->maps.xdp_tx_ports;
+		vlan_map_obj = xdp_forward_skel->maps.vlan_map;
 		obj = xdp_forward_skel->obj;
 		skel = (void *)xdp_forward_skel;
 	}
@@ -219,6 +227,7 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 	 */
 	xdp_program__set_xdp_frags_support(xdp_prog, true);
 
+
 	for (iface = opt->ifaces; iface; iface = iface->next) {
 		if (find_prog(iface, false) != -ENOENT) {
 			pr_warn("Already attached to %s, not reattaching\n",
@@ -241,6 +250,21 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 			goto end_detach;
 		}
 		pr_info("Loaded on interface %s\n", iface->ifname);
+
+		struct vlan_info vlan_list[MAX_VLANS_PER_IFACE];
+		int vlans = find_vlan_interfaces(iface->ifindex, vlan_list);
+		if (vlan_map_obj) {
+			for (int i = 0; i < vlans; i++) {
+				ret = bpf_map_update_elem(bpf_map__fd(vlan_map_obj),
+							  &(vlan_list[i].vlan_ifindex), &vlan_list[i], 0);
+				if (ret) {
+					pr_warn("Failed to update VLAN map value: %s\n",
+						strerror(errno));
+					goto end_detach;
+				}
+			}
+		}
+
 	}
 
 	ret = EXIT_SUCCESS;

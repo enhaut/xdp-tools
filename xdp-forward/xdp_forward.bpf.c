@@ -12,12 +12,24 @@
 
 #define IPV6_FLOWINFO_MASK              bpf_htons(0x0FFFFFFF)
 
+struct vlan_info {
+    __u16 vlan_id;          // VLAN ID
+    int   phys_ifindex;     // Physical interface index
+    int   vlan_ifindex;     // VLAN interface index
+};
 struct {
 	__uint(type, BPF_MAP_TYPE_DEVMAP_HASH);
 	__uint(key_size, sizeof(int));
 	__uint(value_size, sizeof(int));
 	__uint(max_entries, 64);
 } xdp_tx_ports SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(int));
+    __uint(value_size, sizeof(struct vlan_info));
+    __uint(max_entries, 64);
+} vlan_map SEC(".maps");
 
 /* from include/net/ip.h */
 static __always_inline int ip_decrease_ttl(struct iphdr *iph)
@@ -35,6 +47,7 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
 	void *data = (void *)(long)ctx->data;
 	struct bpf_fib_lookup fib_params;
 	struct ethhdr *eth = data;
+    struct vlan_hdr *vhdr = NULL;
 	struct ipv6hdr *ip6h;
 	struct iphdr *iph;
 	__u16 h_proto;
@@ -48,6 +61,17 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
 	__builtin_memset(&fib_params, 0, sizeof(fib_params));
 
 	h_proto = eth->h_proto;
+
+	/* Handle VLAN tagged packets */
+    if (h_proto == bpf_htons(ETH_P_8021Q) || h_proto == bpf_htons(ETH_P_8021AD)) {
+        vhdr = data + nh_off;
+        if (vhdr + 1 > data_end)
+            return XDP_DROP;
+            
+        h_proto = vhdr->h_vlan_encapsulated_proto;
+        nh_off += sizeof(struct vlan_hdr);
+    }
+
 	if (h_proto == bpf_htons(ETH_P_IP)) {
 		iph = data + nh_off;
 
@@ -116,6 +140,15 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
 		 * If not supported will fail with:
 		 *  cannot pass map_type 14 into func bpf_map_lookup_elem#1:
 		 */
+
+		struct vlan_info *vinfo;
+		vinfo = bpf_map_lookup_elem(&vlan_map, &fib_params.ifindex);
+		if (vinfo && vhdr) {
+			/* VLAN tagged packet */
+			fib_params.ifindex = vinfo->phys_ifindex;
+			vhdr->h_vlan_TCI = bpf_htons(vinfo->vlan_id);
+		}
+
 		if (!bpf_map_lookup_elem(&xdp_tx_ports, &fib_params.ifindex))
 			return XDP_PASS;
 
