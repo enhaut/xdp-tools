@@ -41,6 +41,7 @@ static __always_inline int ip_decrease_ttl(struct iphdr *iph)
 	return --iph->ttl;
 }
 
+
 static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
 {
 	void *data_end = (void *)(long)ctx->data_end;
@@ -175,6 +176,46 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
     		
     		// Redirect to target interface directly
     		return bpf_redirect_map(&xdp_tx_ports, fib_params.ifindex, 0);
+		} else if (!vhdr && vinfo) {
+			// untagged packet to VLAN tagged port
+			
+    		unsigned char dmac[ETH_ALEN], smac[ETH_ALEN];
+    		__builtin_memcpy(dmac, fib_params.dmac, ETH_ALEN);
+    		__builtin_memcpy(smac, fib_params.smac, ETH_ALEN);
+    		__be16 orig_proto = h_proto;
+    		
+    		// Handle TTL decrementation before packet modification
+    		if (h_proto == bpf_htons(ETH_P_IP))
+        		ip_decrease_ttl(iph);
+    		else if (h_proto == bpf_htons(ETH_P_IPV6))
+        		ip6h->hop_limit--;
+    		
+    		// Make room for VLAN tag (negative value creates space at the beginning)
+    		signed long delta = sizeof(struct vlan_hdr);
+    		if (bpf_xdp_adjust_head(ctx, -delta))
+        		return XDP_DROP;
+    		
+    		// Reacquire data pointers
+    		data = (void *)(long)ctx->data;
+    		data_end = (void *)(long)ctx->data_end;
+    		
+    		// Verify we have enough data for Ethernet header + VLAN header
+    		if (data + sizeof(struct ethhdr) + sizeof(struct vlan_hdr) > data_end)
+        		return XDP_DROP;
+    		
+    		// Construct new Ethernet header
+    		eth = data;
+    		__builtin_memcpy(eth->h_dest, dmac, ETH_ALEN);
+    		__builtin_memcpy(eth->h_source, smac, ETH_ALEN);
+    		eth->h_proto = bpf_htons(ETH_P_8021Q);  // Set protocol to VLAN
+    		
+    		// Construct VLAN header
+    		vhdr = data + sizeof(struct ethhdr);
+    		vhdr->h_vlan_TCI = bpf_htons(vinfo->vlan_id);
+    		vhdr->h_vlan_encapsulated_proto = orig_proto;
+    		
+    		// Redirect to physical interface
+    		return bpf_redirect_map(&xdp_tx_ports, vinfo->phys_ifindex, 0);
 		}
 
 		if (!bpf_map_lookup_elem(&xdp_tx_ports, &fib_params.ifindex))
