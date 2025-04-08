@@ -147,6 +147,34 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
 			/* VLAN tagged packet */
 			fib_params.ifindex = vinfo->phys_ifindex;
 			vhdr->h_vlan_TCI = bpf_htons(vinfo->vlan_id);
+		} else if (vhdr && !vinfo) {
+			// VLAN tagget packet to untagged port 
+    		__be16 inner_proto = vhdr->h_vlan_encapsulated_proto;
+    		
+    		// Handle TTL decrementation before packet modification
+    		if (h_proto == bpf_htons(ETH_P_IP))
+        		ip_decrease_ttl(iph);
+    		else if (h_proto == bpf_htons(ETH_P_IPV6))
+        		ip6h->hop_limit--;
+    		
+    		// Remove VLAN tag
+    		if (bpf_xdp_adjust_head(ctx, sizeof(struct vlan_hdr)))
+        		return XDP_DROP;
+    		
+    		// Reacquire data pointers
+    		data = (void *)(long)ctx->data;
+    		data_end = (void *)(long)ctx->data_end;
+    		
+    		if (data + sizeof(struct ethhdr) > data_end)
+        		return XDP_DROP;  // not enough space for ethhdr
+    		
+    		eth = data;
+    		__builtin_memcpy(eth->h_dest, fib_params.dmac, ETH_ALEN);
+    		__builtin_memcpy(eth->h_source, fib_params.smac, ETH_ALEN);
+    		eth->h_proto = inner_proto;
+    		
+    		// Redirect to target interface directly
+    		return bpf_redirect_map(&xdp_tx_ports, fib_params.ifindex, 0);
 		}
 
 		if (!bpf_map_lookup_elem(&xdp_tx_ports, &fib_params.ifindex))
