@@ -178,11 +178,6 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
     		return bpf_redirect_map(&xdp_tx_ports, fib_params.ifindex, 0);
 		} else if (!vhdr && vinfo) {
 			// untagged packet to VLAN tagged port
-			
-    		unsigned char dmac[ETH_ALEN], smac[ETH_ALEN];
-    		__builtin_memcpy(dmac, fib_params.dmac, ETH_ALEN);
-    		__builtin_memcpy(smac, fib_params.smac, ETH_ALEN);
-    		__be16 orig_proto = h_proto;
     		
     		// Handle TTL decrementation before packet modification
     		if (h_proto == bpf_htons(ETH_P_IP))
@@ -205,8 +200,8 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
     		
     		// Construct new Ethernet header
     		eth = data;
-    		__builtin_memcpy(eth->h_dest, dmac, ETH_ALEN);
-    		__builtin_memcpy(eth->h_source, smac, ETH_ALEN);
+			__builtin_memcpy(eth->h_dest, fib_params.dmac, ETH_ALEN);
+			__builtin_memcpy(eth->h_source, fib_params.smac, ETH_ALEN);
     		eth->h_proto = bpf_htons(ETH_P_8021Q);  // Set protocol to VLAN
     		
     		// Construct VLAN header
