@@ -178,6 +178,7 @@ static __always_inline int xdp_fwd_flags(struct xdp_md *ctx, __u32 flags)
     		return bpf_redirect_map(&xdp_tx_ports, fib_params.ifindex, 0);
 		} else if (!vhdr && vinfo) {
 			// untagged packet to VLAN tagged port
+    		__be16 orig_proto = h_proto;
     		
     		// Handle TTL decrementation before packet modification
     		if (h_proto == bpf_htons(ETH_P_IP))

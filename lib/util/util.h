@@ -94,12 +94,12 @@ int prog_lock_release(int lock_fd);
 const char *get_libbpf_version(void);
 int iface_print_status(const struct iface *iface);
 
-#define MAX_VLANS_PER_IFACE 64
-struct vlan_info {
-    __u16 vlan_id;          // VLAN ID
-    int   phys_ifindex;     // Physical interface index
-    int   vlan_ifindex;        // VLAN interface index
-};
-int find_vlan_interfaces(int target_ifindex, struct vlan_info *vlan_list);
+// #define MAX_VLANS_PER_IFACE 64
+// struct vlan_info {
+//     __u16 vlan_id;          // VLAN ID
+//     int   phys_ifindex;     // Physical interface index
+//     int   vlan_ifindex;        // VLAN interface index
+// };
+// int find_vlan_interfaces(int target_ifindex, struct vlan_info *vlan_list);
 
 #endif
