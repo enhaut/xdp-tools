@@ -340,7 +340,7 @@ static int do_load(const void *cfg, __unused const char *pin_root_path)
 			goto end;
 		}
 		map = xdp_flowtable_skel->maps.xdp_tx_ports;
-		vlan_map_obj = xdp_flowtable_skel->maps.vlan_map;
+		/* vlan_map_obj = xdp_flowtable_skel->maps.vlan_map; */
 		obj = xdp_flowtable_skel->obj;
 		skel = (void *)xdp_flowtable_skel;
 	} else {
