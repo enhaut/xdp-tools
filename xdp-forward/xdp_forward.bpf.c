@@ -25,7 +25,7 @@ struct {
 } xdp_tx_ports SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
     __uint(key_size, sizeof(int));
     __uint(value_size, sizeof(struct vlan_info));
     __uint(max_entries, 64);
