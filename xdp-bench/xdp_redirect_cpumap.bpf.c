@@ -478,6 +478,16 @@ __u32 get_ipv4_hash_ip_pair(struct xdp_md *ctx, __u64 nh_off)
 		return 0;
 
 	cpu_hash = iph->saddr + iph->daddr;
+
+	if (iph->protocol == IPPROTO_TCP || iph->protocol == IPPROTO_UDP) {
+		struct udphdr *ports = (void *)(iph + 1);
+
+		if (ports + 1 > data_end)
+			return 0;
+
+		cpu_hash += ports->source + ports->dest;
+	}
+
 	cpu_hash = SuperFastHash((char *)&cpu_hash, 4, INITVAL + iph->protocol);
 
 	return cpu_hash;
@@ -498,14 +508,24 @@ __u32 get_ipv6_hash_ip_pair(struct xdp_md *ctx, __u64 nh_off)
 	cpu_hash += ip6h->saddr.in6_u.u6_addr32[1] + ip6h->daddr.in6_u.u6_addr32[1];
 	cpu_hash += ip6h->saddr.in6_u.u6_addr32[2] + ip6h->daddr.in6_u.u6_addr32[2];
 	cpu_hash += ip6h->saddr.in6_u.u6_addr32[3] + ip6h->daddr.in6_u.u6_addr32[3];
+
+	if (ip6h->nexthdr == IPPROTO_TCP || ip6h->nexthdr == IPPROTO_UDP) {
+		struct udphdr *ports = (void *)(ip6h + 1);
+
+		if (ports + 1 > data_end)
+			return 0;
+
+		cpu_hash += ports->source + ports->dest;
+	}
+
 	cpu_hash = SuperFastHash((char *)&cpu_hash, 4, INITVAL + ip6h->nexthdr);
 
 	return cpu_hash;
 }
 
-/* Load-Balance traffic based on hashing IP-addrs + L4-proto.  The
- * hashing scheme is symmetric, meaning swapping IP src/dest still hit
- * same CPU.
+/* Load-Balance traffic based on hashing IP-addrs + L4-ports.  The
+ * hashing scheme is symmetric, meaning swapping IP src/dest and
+ * src/dest ports still hit same CPU.
  */
 SEC("xdp")
 int  cpumap_l4_hash(struct xdp_md *ctx)
